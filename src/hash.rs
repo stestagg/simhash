@@ -3,43 +3,50 @@ use std::hash::{Hash, Hasher};
 use lazy_static::lazy_static;
 
 #[inline(always)]
-fn sip_hash_byte_pair(value: u16) -> u64 {
-    let mut s = SipHasher::default();
-    value.hash(&mut s);
-    s.finish()
+pub fn sip_hash_fn(value: &[u8]) -> u64 {
+    SipHasher::default().hash(value)
 }
 
-#[inline(always)]
-fn xxh3_hash_byte_pair(value: u16) -> u64 {
-    xxhash_rust::xxh3::xxh3_64(&value.to_le_bytes())
-}
+macro_rules! hash_impl {
+    ($name:ident, $hash_fn:path) => {
+        pub mod $name {
+            use lazy_static::lazy_static;
+            pub use $hash_fn as hash_fn;
 
-macro_rules! define_sip_lookup {
-    ($name:ident, $hash_fn:ident, $lookup_fn:ident) => {
-        lazy_static! {
-            static ref $name: [u64; 65535] = {
-                let mut dest = [0; 65535];
-                (0..65535).for_each(|value: u16| dest[value as usize] = $hash_fn(value));
-                dest
-            };
+            lazy_static! {
+                static ref U16_TABLE: [u64; 65535] = {
+                    let mut dest = [0; 65535];
+                    (0..65535).for_each(|value: u16| dest[value as usize] = $hash_fn(value.to_le_bytes().as_ref()));
+                    dest
+                };
+                static ref U8_TABLE: [u64; 255] = {
+                    let mut dest = [0; 255];
+                    (0..255).for_each(|value: u8| dest[value as usize] = $hash_fn([value, 0].as_ref()));
+                    dest
+                };
+            }     
+
+            #[inline(always)]
+            pub fn lookup_u16(value: u16) -> u64 {
+                U16_TABLE[value as usize]
+            }
+
+            #[inline(always)]
+            pub fn lookup_u8(value: u8) -> u64 {
+                U8_TABLE[value as usize]
+            }
         }
-
-        #[inline(always)]
-        pub fn $lookup_fn(value: u16) -> u64 {
-            $name[value as usize]
-        }
-    };
+    }
 }
 
-define_sip_lookup!(SIP_BYTE_PAIR_TABLE, sip_hash_byte_pair, sip_lookup_byte_pair);
-define_sip_lookup!(XXH3_BYTE_PAIR_TABLE, xxh3_hash_byte_pair, xxh3_lookup_byte_pair);
+hash_impl!(sip_, super::sip_hash_fn);
+hash_impl!(xxh3_, xxhash_rust::xxh3::xxh3_64);
 
 
-pub fn hash_pair<F>(val: &str, f: F) -> u64
+pub fn hash_byte_pair<F>(bytes: &[u8], f: F) -> u64
 where
     F: Fn(u16) -> u64,
 {
-    let bytes = val.as_bytes();
     if bytes.is_empty() {
         return 0;
     }
@@ -50,7 +57,7 @@ where
     let feature_adj: u32 = ((bytes.len() - 1) / 2) as u32;
     let mut buckets = [0u32; 64];
 
-    for slice in val.as_bytes().windows(2).into_iter() {
+    for slice in bytes.windows(2).into_iter() {
         let feature = u16::from_le_bytes([slice[0], slice[1]]);
         let hashval = f(feature);
         for i in 0..64 {
@@ -65,6 +72,34 @@ where
     val
 }
 
+pub fn hash_features<'a, 'b, H>(bytes: &'b [u8], hash: H, feature_extractor: Box<dyn FnOnce(&'b [u8]) -> Box<crate::AnyFeatureIter<'b>> + 'a>) -> u64
+where
+    H: Fn(&[u8]) -> u64,
+{
+    if bytes.is_empty() {
+        return 0;
+    }
+
+    let features = feature_extractor(bytes);
+    let mut feature_adj: u32 = 0;
+    let mut buckets = [0u32; 64];
+
+    for feature in features {
+        feature_adj += 1;
+        let hashval = hash(feature.as_ref());
+        for i in 0..64 {
+            buckets[i] = buckets[i].saturating_add((hashval >> i & 1) as u32);
+        }
+    }
+
+    feature_adj /= 2;
+
+    let val = buckets.iter().enumerate().fold(0, |acc, (i, &b)| {
+        let bitval = (if b > feature_adj { 1 } else { 0 }) << i;
+        acc | bitval
+    });
+    val
+}
 
 
 
