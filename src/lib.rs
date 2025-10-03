@@ -21,6 +21,82 @@ mod features;
 use std::borrow::Cow;
 type AnyFeatureIter<'a> = dyn Iterator<Item = Cow<'a, [u8]>> + 'a;
 
+pub struct SimHasher {
+    hash_fn: Box<dyn Fn(&[u8]) -> u64 + Send + Sync>,
+    feature_fn: Box<dyn for<'a> Fn(&'a [u8]) -> Box<AnyFeatureIter<'a>> + Send + Sync>,
+}
+
+impl SimHasher {
+    pub fn new<H, F>(hash_fn: H, feature_fn: F) -> Self
+    where
+        H: Fn(&[u8]) -> u64 + Send + Sync + 'static,
+        F: for<'a> Fn(&'a [u8]) -> Box<AnyFeatureIter<'a>> + Send + Sync + 'static,
+    {
+        Self {
+            hash_fn: Box::new(hash_fn),
+            feature_fn: Box::new(feature_fn),
+        }
+    }
+
+    pub fn hash<T: SimHashable>(&self, value: T) -> u64 {
+        value.simhash(self)
+    }
+
+    pub fn hash_bytes(&self, bytes: &[u8]) -> u64 {
+        let hash_fn = &self.hash_fn;
+        let feature_fn = &self.feature_fn;
+        crate::hash::hash_features(
+            bytes,
+            |feature| (hash_fn)(feature),
+            Box::new(move |input| (feature_fn)(input)),
+        )
+    }
+}
+
+pub trait SimHashable: Sized {
+    fn simhash(self, hasher: &SimHasher) -> u64;
+}
+
+impl<T> SimHashable for T
+where
+    T: AsRef<[u8]> + Sized,
+{
+    fn simhash(self, hasher: &SimHasher) -> u64 {
+        hasher.hash_bytes(self.as_ref())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SimHashable, SimHasher};
+
+    #[test]
+    fn simhasher_hashes_bytes() {
+        let hasher = SimHasher::new(crate::hash::xxh3_::hash_fn, |bytes: &[u8]| {
+            Box::new(bytes.windows(3).map(|window| window.into()))
+        });
+
+        let left = hasher.hash("hello world");
+        let right = hasher.hash("hello world");
+
+        assert_ne!(left, 0);
+        assert_eq!(left, right);
+    }
+
+    #[test]
+    fn simhashable_impl_for_as_ref() {
+        let hasher = SimHasher::new(crate::hash::sip_::hash_fn, |bytes: &[u8]| {
+            Box::new(bytes.iter().map(|byte| std::slice::from_ref(byte).into()))
+        });
+
+        let text = String::from("example");
+        let hash_from_hasher = hasher.hash(text.as_bytes());
+        let hash_from_trait = text.simhash(&hasher);
+
+        assert_eq!(hash_from_hasher, hash_from_trait);
+    }
+}
+
 #[pymodule]
 mod simhash {
     use std::collections::HashMap;
