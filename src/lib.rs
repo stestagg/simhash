@@ -17,9 +17,12 @@ fn hamming_distance<T: IntoU64, U: IntoU64>(a: T, b: U) -> u32 {
 mod hash;
 mod tree;
 mod features;
+mod map;
 
 use std::borrow::Cow;
 type AnyFeatureIter<'a> = dyn Iterator<Item = Cow<'a, [u8]>> + 'a;
+
+pub use map::{SimEntry, SimMap, SimOccupiedEntry, SimVacantEntry};
 
 pub struct SimHasher {
     hash_fn: Box<dyn Fn(&[u8]) -> u64 + Send + Sync>,
