@@ -14,8 +14,6 @@
 // - Insert: O(TREE_DEPTH) = O(16) = O(1)
 // - Search: O(BRANCH_FACTOR^max_diff * TREE_DEPTH) in worst case, typically much better
 
-use std::fmt::Debug;
-
 // Configuration constants for the hash tree structure
 // The tree breaks down a 64-bit hash into 4-bit chunks, creating a 16-way branching tree
 const BRANCH_BITS: usize = 4;                          // Number of bits used per tree level
@@ -23,13 +21,12 @@ const BRANCH_FACTOR: u8 = 1 << BRANCH_BITS;            // Number of branches per
 const TREE_DEPTH: usize = 64 / BRANCH_BITS;            // Total tree depth (64 bits / 4 bits per level = 16 levels)
 
 // Represents a branch in the hash tree - either empty or containing a child node
-#[derive(Debug)]
-enum HashTreeEntry<T: Debug> {
+enum HashTreeEntry<T> {
     None,                        // Empty branch (no data in this path)
     Node(Box<HashTree<T>>),      // Contains a subtree (boxed to avoid recursive type sizing issues)
 }
 
-impl<T: Debug + Default> Default for HashTreeEntry<T> {
+impl<T> Default for HashTreeEntry<T> {
     fn default() -> Self {
         HashTreeEntry::None
     }
@@ -43,17 +40,14 @@ fn pop_bits(value: u64, bits: usize) -> (u64, u64) {
     (value >> bits, value & mask)            // Return (shifted value, extracted bits)
 }
 
-
 // A 16-way branching tree for storing and searching hash values with Hamming distance tolerance
 // Each node has 16 branches (one for each possible 4-bit value) and optionally stores a value at leaf nodes
-#[derive(Debug)]
-pub struct HashTree<T: Debug> {
+pub struct HashTree<T> {
     branches: [HashTreeEntry<T>; BRANCH_FACTOR as usize],  // 16 branches, one for each 4-bit pattern
     value: Option<T>,                                       // Value stored at leaf nodes only
 }
 
-impl<T: Debug> HashTree<T> {
-
+impl<T> HashTree<T> {
     // Creates an empty hash tree node with no branches or values
     pub fn new() -> Self {
         HashTree {
@@ -132,7 +126,6 @@ impl<T: Debug> HashTree<T> {
                 node._add(rest, value, level + 1);
             }
         }
-
     }
 
     // Adds a value to the tree at the position determined by the hash
