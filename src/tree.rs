@@ -66,12 +66,12 @@ impl<T> HashTree<T> {
 
     // Searches for a hash value in the tree, allowing up to max_diff bit differences (Hamming distance)
     // Returns a reference to the stored value if a match is found within the tolerance
-    pub fn contains(&self, hash: u64, max_diff: usize) -> Option<&T> {
+    pub fn contains(&self, hash: u64, max_diff: u8) -> Option<&T> {
         self._contains(hash, max_diff, 0)
     }
 
     // Recursive implementation of contains that tracks tree depth and remaining allowed differences
-    fn _contains(&self, hash: u64, max_diff: usize, level: usize) -> Option<&T> {
+    fn _contains(&self, hash: u64, max_diff: u8, level: usize) -> Option<&T> {
         let remaining_levels = TREE_DEPTH - level as usize;
 
         // Base case: reached a leaf level, return any stored value
@@ -85,10 +85,10 @@ impl<T> HashTree<T> {
         // Check all 16 branches, but only follow those within our Hamming distance budget
         for i in 0..BRANCH_FACTOR {
             // Calculate how many bits differ between the query and this branch
-            let diff = (level_bits as u8 ^ i).count_ones() as usize;
+            let diff = (level_bits as u8 ^ i).count_ones() as u8;
 
             // Only explore branches where the bit difference doesn't exceed our remaining budget
-            if diff < max_diff {
+            if diff <= max_diff {
                 match &self.branches[i as usize] {
                     HashTreeEntry::None => {},
                     HashTreeEntry::Node(node) => {

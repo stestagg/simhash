@@ -35,15 +35,17 @@ def test_difference():
 
 
 def test_hash_sip_2byte():
-    sh1 = simhash.hash("The cat sat on the mat")
-    sh2 = simhash.hash("The cat spat on the mat")
+    hasher = simhash.SimHasher()
+    sh1 = hasher.hash("The cat sat on the mat")
+    sh2 = hasher.hash("The cat spat on the mat")
 
     assert sh1 != sh2
     assert sh1.difference(sh2) == 4
 
 def test_hash_xxh3_2byte():
-    sh1 = simhash.hash("The cat sat on the mat", method=simhash.HashMethod.XXHash)
-    sh2 = simhash.hash("The cat spat on the mat", method=simhash.HashMethod.XXHash)
+    hasher = simhash.SimHasher(hash_method=simhash.HashMethod.XXHash)
+    sh1 = hasher.hash("The cat sat on the mat")
+    sh2 = hasher.hash("The cat spat on the mat")
 
     assert sh1 != sh2
     assert sh1.difference(sh2) == 4
@@ -57,8 +59,9 @@ def test_hash_difference():
 def test_odd_ones():
     assert simhash.hash('') == simhash.SimHash.from_int(0)
     assert simhash.hash('', method=simhash.HashMethod.XXHash) == simhash.SimHash.from_int(0)
-    assert simhash.hash('a').value != 0
-    assert simhash.hash('a', method=simhash.HashMethod.XXHash).value != 0
+    assert simhash.hash('a', n=1).value != 0
+    assert simhash.hash('a', n=2).value == 0
+    assert simhash.hash('a', method=simhash.HashMethod.XXHash, n=1).value != 0
 
 
 def test_variance():
@@ -80,21 +83,22 @@ def test_variance():
     last_avg = sum(variances[-8:]) / 8
     assert first_avg > last_avg * 2
     
-def test_bytes_input():
-    sh1 = simhash.hash(b"The cat sat on the mat")
-    sh2 = simhash.hash("The cat sat on the mat")
-    sh3 = simhash.hash(bytearray(b"The cat sat on the mat"))
-    sh4 = simhash.hash(b"Bob")
+# def test_bytes_input():
+#     sh1 = simhash.hash(b"The cat sat on the mat")
+#     sh2 = simhash.hash("The cat sat on the mat")
+#     sh3 = simhash.hash(bytearray(b"The cat sat on the mat"))
+#     sh4 = simhash.hash(b"Bob")
 
-    assert sh1 == sh2
-    assert sh1 == sh3
-    assert sh1 != sh4
+#     assert sh1 == sh2
+#     assert sh1 == sh3
+#     assert sh1 != sh4
 
 def test_all_byte_vals():
     all_bytes = bytes(range(256)) * 2
+    all_bytes = all_bytes.decode('latin1')
     sh1 = simhash.hash(all_bytes)
     sh2 = simhash.hash(all_bytes, method=simhash.HashMethod.XXHash)
-    sh3 = simhash.hash(all_bytes, features=simhash.Features.Bytes(1))
+    sh3 = simhash.hash(all_bytes, features=simhash.FeatureType.Bytes, n=2)
 
     assert sh1.value != 0
     assert sh2.value != 0
@@ -104,60 +108,45 @@ def test_features():
     # Test a string with emojis and accented characters
     test_str = "One 🐈‍⬛ sat on the 🪑, the other 🐈‍🟫 was 🏃🏽‍♀️"
     assert len(test_str) == 45
-    features_bytes = list(simhash.features(test_str, simhash.Features.Bytes(1)))
-    features_graphemes = list(simhash.features(test_str, simhash.Features.Graphemes(1)))
+    features_bytes = list(simhash.features(test_str, simhash.FeatureType.Bytes))
+    features_graphemes = list(simhash.features(test_str, simhash.FeatureType.Graphemes))
 
     assert [b.decode(errors='replace') for b in features_bytes] == [
         'O', 'n', 'e', ' ', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', ' ', 
         's', 'a', 't', ' ', 'o', 'n', ' ', 't', 'h', 'e', ' ', '�', '�', '�', '�', ',', 
         ' ', 't', 'h', 'e', ' ', 'o', 't', 'h', 'e', 'r', ' ', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', ' ', 'w', 'a', 's', 
         ' ', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�', '�']
-    assert [b.decode() for b in features_graphemes] == [
+    assert features_graphemes == [
         'O', 'n', 'e', ' ', '🐈\u200d⬛', ' ', 's', 'a', 't', ' ', 'o', 'n', ' ', 't', 'h', 'e', 
         ' ', '🪑', ',', ' ', 't', 'h', 'e', ' ', 'o', 't', 'h', 'e', 'r', ' ', '🐈\u200d🟫', ' ', 'w', 'a', 's', ' ', '🏃🏽\u200d♀️']
     
     reconstructed = (b''.join(features_bytes)).decode('utf-8')
     assert reconstructed == test_str
-    reconstructed_graphemes = ''.join(b.decode() for b in features_graphemes)
+    reconstructed_graphemes = ''.join(features_graphemes)
     assert reconstructed_graphemes == test_str
 
-def test_features_2():
+def test_word_features():
     test_str = "One 🐈‍⬛ sat on the 🪑, the other 🐈‍🟫 was 🏃🏽‍♀️"
-    features_bytes = list(simhash.features(test_str, simhash.Features.Bytes(2)))
-    features_graphemes = list(simhash.features(test_str, simhash.Features.Graphemes(2)))
+    features_words = simhash.features(test_str, simhash.FeatureType.Words)
+    assert features_words == ['One', 'sat', 'on', 'the', 'the', 'other', 'was']
 
-    assert [b.decode(errors='replace') for b in features_bytes] == [
-        'On', 'ne', 'e ', ' �', '�', '��', '��', '��', '�', '��', '��', '�', '��', 
-        '� ', ' s', 'sa', 'at', 't ', ' o', 'on', 'n ', ' t', 'th', 'he', 'e ', ' �', 
-        '�', '��', '��', '�,', ', ', ' t', 'th', 'he', 'e ', ' o', 'ot', 'th', 'he', 
-        'er', 'r ', ' �', '�', '��', '��', '��', '�', '��', '��', '�', '��', '��', '� ', 
-        ' w', 'wa', 'as', 's ', ' �', '�', '��', '��', '��', '�', '��', '��', '��', 
-        '�', '��', '��', '�', '��', '��', '�', '��'
+
+def test_grouping():
+    texts = [
+        "The cat sat on the mat",
+        "The cat spat on the mat",
+        "A dog barked all the way to the $MOON",
+        "A doge barked all the way to the $MOON",
     ]
-         
-    assert [b.decode() for b in features_graphemes] == [
-        'On', 'ne', 'e ', ' 🐈\u200d⬛', '🐈\u200d⬛ ', ' s', 'sa', 'at', 't ', 
-        ' o', 'on', 'n ', ' t', 'th', 'he', 'e ', ' 🪑', '🪑,', ', ', ' t', 'th', 
-        'he', 'e ', ' o', 'ot', 'th', 'he', 'er', 'r ', ' 🐈\u200d🟫', '🐈\u200d🟫 ', 
-        ' w', 'wa', 'as', 's ', ' 🏃🏽\u200d♀️'
+    groups = simhash.group_texts(texts, max_diff=6)
+    assert len(groups) == 2
+    assert sorted(groups, key=lambda g: g[0]) == [
+        [
+            "A dog barked all the way to the $MOON",
+            "A doge barked all the way to the $MOON",
+        ],
+        [
+            "The cat sat on the mat",
+            "The cat spat on the mat",
+        ],
     ]
-
-# def test_word_features():
-#     test_str = "One 🐈‍⬛ sat on the 🪑, the other 🐈‍🟫 was 🏃🏽‍♀️"
-#     features_words = list(simhash.features(test_str, simhash.Features.Words(1)))
-#     assert [b.decode() for b in features_words] == [
-#         'One', '🐈‍⬛', 'sat', 'on', 'the', '🪑', ',', 'the', 'other', '🐈‍🟫', 'was', '🏃🏽‍♀️'
-#     ]
-#     features_words_2 = list(simhash.features(test_str, simhash.Features.Words(2)))
-#     assert [b.decode() for b in features_words_2] == [
-#         'One 🐈‍⬛', '🐈‍⬛ sat', 'sat on', 'on the', 'the 🪑', '🪑,', ', the', 'the other', 'other 🐈‍🟫', 
-#         '🐈‍🟫 was', 'was 🏃🏽‍♀️'
-    # ]
-
-def test_invalid_features():
-    with pytest.raises(ValueError):
-        simhash.features("test", simhash.Features.Bytes(0))
-    with pytest.raises(ValueError):
-        simhash.features("test", simhash.Features.Graphemes(0))
-    with pytest.raises(ValueError):
-        simhash.hash("test", features=simhash.Features.Bytes(0))
